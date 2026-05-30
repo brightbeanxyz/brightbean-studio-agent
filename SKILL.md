@@ -107,6 +107,117 @@ in `apps/social_accounts/models.py::SocialAccount.char_limit`:
 Always confirm with the user before scheduling — there is no built-in
 "are you sure?" gate beyond `publish_directly` permission.
 
+## Parameters cheat sheet
+
+Inlined here so the agent doesn't have to chase `reference/*.md` for
+the common case. The full reference (with status codes and error
+shapes) is in [`reference/rest-api.md`](reference/rest-api.md) and
+[`reference/mcp-tools.md`](reference/mcp-tools.md).
+
+### Create draft or scheduled post
+
+`POST /api/v1/posts/` (REST) / `create_draft` or `schedule_post` (MCP)
+
+| Parameter           | Type             | Req? | Notes |
+|---------------------|------------------|------|-------|
+| `social_account_id` | UUID string      | yes  | Must be in the key's allowlist (see `list_accounts`). Determines the target platform implicitly. |
+| `caption`           | string ≤ 10 000  | yes  | The post body. Per-platform character limits apply (see table above) — the API itself enforces 10 000 max; the platform may reject earlier. |
+| `action`            | `"draft"` \| `"schedule"` | REST only | Defaults to `"draft"`. The MCP equivalent uses two separate tools (`create_draft` vs `schedule_post`) so this field doesn't exist there. |
+| `scheduled_at`      | ISO 8601 UTC string | required when `action="schedule"` (REST) or always for `schedule_post` (MCP) | E.g. `"2026-06-01T14:00:00Z"`. The publisher polls every ~15 s and fires the post on the next tick at or after this time. Past timestamps are accepted and fire immediately. |
+| `title`             | string ≤ 255     | no   | Used by platforms that support a title (YouTube, LinkedIn articles, etc.). Ignored elsewhere. |
+| `first_comment`     | string ≤ 10 000  | no   | Posted as a reply to the main post immediately after it publishes. Common pattern: hashtags on Instagram, link drops on LinkedIn. |
+| `media_asset_ids`   | array of UUIDs   | no   | `MediaAsset` UUIDs already uploaded to the workspace's media library via the Brightbean UI. Order in the array = display order in the carousel. |
+| `idempotency_key`   | string ≤ 128 (REST only) | recommended | Send the same key on retries to replay the first response. Also accepted as the `Idempotency-Key` HTTP header. |
+
+**Worked example — REST schedule:**
+
+```json
+POST /api/v1/posts/
+{
+  "social_account_id": "46332b33-21c9-4534-987f-ac1fb2daa906",
+  "caption": "Launching today! Excited to share what we've been building.",
+  "action": "schedule",
+  "scheduled_at": "2026-06-01T14:00:00Z",
+  "first_comment": "Read the full post on our blog: https://example.com/launch",
+  "media_asset_ids": ["a1b2c3d4-..."],
+  "idempotency_key": "agent-launch-2026-06-01"
+}
+```
+
+**Worked example — MCP schedule:**
+
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+  "name": "schedule_post",
+  "arguments": {
+    "social_account_id": "46332b33-21c9-4534-987f-ac1fb2daa906",
+    "caption": "Launching today!",
+    "scheduled_at": "2026-06-01T14:00:00Z",
+    "first_comment": "Read the full post: https://example.com/launch"
+  }
+}}
+```
+
+### Schedule an existing draft (separate route)
+
+`POST /api/v1/posts/{post_id}/schedule` (REST only)
+
+| Parameter      | Type                | Req? | Notes |
+|----------------|---------------------|------|-------|
+| `post_id`      | UUID (URL path)     | yes  | The draft post to promote. |
+| `scheduled_at` | ISO 8601 UTC string | yes  | When to fire. |
+
+There is no MCP-side equivalent for transitioning an *existing* draft
+— MCP's `schedule_post` always creates a new post in scheduled state.
+Two-step "draft, then schedule later" via MCP requires re-creating the
+post; via REST you can `POST /posts/ {action: "draft"}` and later
+`POST /posts/{id}/schedule {scheduled_at: ...}`.
+
+### Update a draft (or re-time a scheduled post)
+
+`PATCH /api/v1/posts/{post_id}` (REST only)
+
+| Parameter         | Type                | Req? | Notes |
+|-------------------|---------------------|------|-------|
+| `caption`         | string ≤ 10 000     | no   | Omit to leave unchanged. |
+| `title`           | string ≤ 255        | no   | |
+| `first_comment`   | string ≤ 10 000     | no   | |
+| `media_asset_ids` | array of UUIDs      | no   | Sending this **replaces** the entire attachment set. |
+| `scheduled_at`    | ISO 8601 UTC string | no   | Re-times every currently-scheduled child. Drafts unaffected. |
+
+PATCH only works while the post is in an editable status (`draft`,
+`changes_requested`, `rejected`, `approved`, `scheduled`). Published
+posts can't be edited via the API.
+
+### Cancel a scheduled post (back to draft)
+
+`POST /api/v1/posts/{post_id}/cancel` (REST) / `cancel_post` (MCP)
+
+| Parameter | Type            | Req? | Notes |
+|-----------|-----------------|------|-------|
+| `post_id` | UUID            | yes  | URL path in REST, `arguments.post_id` in MCP. |
+
+No body. Every scheduled child transitions back to `draft` and
+`Post.scheduled_at` is cleared.
+
+### Read a post
+
+`GET /api/v1/posts/{post_id}` (REST) / `get_post` (MCP)
+
+| Parameter | Type | Req? | Notes |
+|-----------|------|------|-------|
+| `post_id` | UUID | yes  | URL path in REST, `arguments.post_id` in MCP. |
+
+Returns the canonical `PostResponse` shape (id, caption, status,
+per-platform children, scheduled_at, published_at, …).
+
+### Discovery
+
+| Operation | REST | MCP | Parameters |
+|-----------|------|-----|------------|
+| List allowlisted accounts | `GET /api/v1/accounts/` | `list_accounts` | none |
+| Inspect the key's scope | `GET /api/v1/me/` | — | none |
+
 ## Common workflows
 
 Detailed walkthroughs (Python + shell) live in `examples/`:

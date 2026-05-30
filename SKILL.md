@@ -107,116 +107,395 @@ in `apps/social_accounts/models.py::SocialAccount.char_limit`:
 Always confirm with the user before scheduling — there is no built-in
 "are you sure?" gate beyond `publish_directly` permission.
 
-## Parameters cheat sheet
+## Endpoint reference
 
-Inlined here so the agent doesn't have to chase `reference/*.md` for
-the common case. The full reference (with status codes and error
-shapes) is in [`reference/rest-api.md`](reference/rest-api.md) and
-[`reference/mcp-tools.md`](reference/mcp-tools.md).
+Every endpoint and tool the API exposes. Inlined here so the agent
+doesn't have to chase `reference/*.md` for the wire shape — that
+deeper docs in `reference/` are for when something goes wrong (full
+error taxonomy, rate-limit math, security boundary deep-dive).
 
-### Create draft or scheduled post
+### Shared response shapes
 
-`POST /api/v1/posts/` (REST) / `create_draft` or `schedule_post` (MCP)
+The same envelopes show up across many endpoints. Defined once here,
+referenced by name below.
 
-| Parameter           | Type             | Req? | Notes |
-|---------------------|------------------|------|-------|
-| `social_account_id` | UUID string      | yes  | Must be in the key's allowlist (see `list_accounts`). Determines the target platform implicitly. |
-| `caption`           | string ≤ 10 000  | yes  | The post body. Per-platform character limits apply (see table above) — the API itself enforces 10 000 max; the platform may reject earlier. |
-| `action`            | `"draft"` \| `"schedule"` | REST only | Defaults to `"draft"`. The MCP equivalent uses two separate tools (`create_draft` vs `schedule_post`) so this field doesn't exist there. |
-| `scheduled_at`      | ISO 8601 UTC string | required when `action="schedule"` (REST) or always for `schedule_post` (MCP) | E.g. `"2026-06-01T14:00:00Z"`. The publisher polls every ~15 s and fires the post on the next tick at or after this time. Past timestamps are accepted and fire immediately. |
-| `title`             | string ≤ 255     | no   | Used by platforms that support a title (YouTube, LinkedIn articles, etc.). Ignored elsewhere. |
-| `first_comment`     | string ≤ 10 000  | no   | Posted as a reply to the main post immediately after it publishes. Common pattern: hashtags on Instagram, link drops on LinkedIn. |
-| `media_asset_ids`   | array of UUIDs   | no   | `MediaAsset` UUIDs already uploaded to the workspace's media library via the Brightbean UI. Order in the array = display order in the carousel. |
-| `idempotency_key`   | string ≤ 128 (REST only) | recommended | Send the same key on retries to replay the first response. Also accepted as the `Idempotency-Key` HTTP header. |
-
-**Worked example — REST schedule:**
-
+**`AccountSummary`**
 ```json
-POST /api/v1/posts/
 {
-  "social_account_id": "46332b33-21c9-4534-987f-ac1fb2daa906",
-  "caption": "Launching today! Excited to share what we've been building.",
-  "action": "schedule",
-  "scheduled_at": "2026-06-01T14:00:00Z",
-  "first_comment": "Read the full post on our blog: https://example.com/launch",
-  "media_asset_ids": ["a1b2c3d4-..."],
-  "idempotency_key": "agent-launch-2026-06-01"
+  "id":                "uuid",
+  "platform":          "linkedin_personal",
+  "account_name":      "Jan on LinkedIn",
+  "account_handle":    "",
+  "connection_status": "connected"
+}
+```
+`platform` is one of: `linkedin_personal`, `linkedin_company`,
+`facebook`, `instagram`, `instagram_login`, `tiktok`, `youtube`,
+`pinterest`, `threads`, `mastodon`, `bluesky`, `google_business`.
+`connection_status` is one of: `connected`, `token_expiring`,
+`disconnected`, `error`.
+
+**`PlatformPostSummary`** (per-account child of a Post)
+```json
+{
+  "id":                "uuid",
+  "social_account_id": "uuid",
+  "platform":          "linkedin_personal",
+  "status":            "draft|pending_review|approved|scheduled|publishing|published|failed",
+  "scheduled_at":      "ISO 8601 | null",
+  "published_at":      "ISO 8601 | null",
+  "platform_post_id":  ""  // filled by the publisher after success
 }
 ```
 
-**Worked example — MCP schedule:**
+**`PostResponse`** (returned by every Post-touching write + read)
+```json
+{
+  "id":             "uuid",
+  "workspace_id":   "uuid",
+  "title":          "",
+  "caption":        "string",
+  "first_comment":  "",
+  "scheduled_at":   "ISO 8601 | null",
+  "published_at":   "ISO 8601 | null",
+  "status":         "draft|scheduled|publishing|published|partially_published|failed",
+  "platform_posts": [PlatformPostSummary, ...],
+  "created_at":     "ISO 8601",
+  "updated_at":     "ISO 8601"
+}
+```
+Top-level `status` is the DERIVED aggregate over children. Drive
+transitions from individual `platform_posts[]` rows.
+
+**`ErrorResponse`** (every 4xx/5xx)
+```json
+{
+  "error":       "rate_limited|forbidden|not_found|unprocessable_entity|conflict|bad_request|unauthorized",
+  "detail":      "Human-readable explanation",
+  "tier":        "...",   // 429 only
+  "limit":       0,       // 429 only
+  "remaining":   0,       // 429 only
+  "retry_after": 0        // 429 only — seconds
+}
+```
+On 429s the matching `Retry-After` HTTP header is also set.
+
+---
+
+### REST endpoints
+
+All under `/api/v1/`. Every request needs
+`Authorization: Bearer bb_studio_...`. HTTPS required in prod.
+
+#### `GET /me/`
+
+**Purpose:** Echo the key's scope. Use as the first call in a new
+session to validate the token, learn the workspace, and discover
+which accounts the key may target.
+
+**Request body:** none
+
+**Response 200:**
+```json
+{
+  "api_key_id":           "uuid",
+  "workspace_id":         "uuid",
+  "workspace_name":       "string",
+  "organization_id":      "uuid",
+  "permissions":          ["create_posts", "publish_directly", ...],
+  "allowlisted_accounts": [AccountSummary, ...]
+}
+```
+
+**Errors:** 401 (bad / missing bearer, IP-throttled).
+
+---
+
+#### `GET /accounts/`
+
+**Purpose:** List the connected accounts this key may act on. Same
+content as `/me/`'s `allowlisted_accounts`, returned as a top-level
+list — useful when you only need the accounts.
+
+**Request body:** none
+
+**Response 200:**
+```json
+{ "accounts": [AccountSummary, ...] }
+```
+
+**Errors:** 401.
+
+---
+
+#### `POST /posts/`
+
+**Purpose:** Create a draft OR a scheduled post in one call.
+
+**Request body:**
+
+| Parameter           | Type                       | Req?                                | Notes |
+|---------------------|----------------------------|-------------------------------------|-------|
+| `social_account_id` | UUID                       | yes                                 | Must be in the key's allowlist. Determines the target platform implicitly. |
+| `caption`           | string ≤ 10 000            | yes                                 | Per-platform character limits apply (see table above). |
+| `action`            | `"draft"` \| `"schedule"`  | no (default `"draft"`)              | |
+| `scheduled_at`      | ISO 8601 UTC               | required when `action="schedule"`   | E.g. `"2026-06-01T14:00:00Z"`. The publisher polls ~every 15s. Past timestamps fire on the next tick. |
+| `title`             | string ≤ 255               | no                                  | Used by platforms that support a title (YouTube, LinkedIn articles); ignored elsewhere. |
+| `first_comment`     | string ≤ 10 000            | no                                  | Posted as a reply right after the main post. Hashtag dump / link drop pattern. |
+| `media_asset_ids`   | array of UUIDs             | no                                  | `MediaAsset` UUIDs already uploaded to the workspace's media library. Order = carousel order. |
+| `idempotency_key`   | string ≤ 128               | recommended                         | Same key on retries replays the first response. Also accepted as the `Idempotency-Key` HTTP header. Body field wins when both are present. |
+
+**Permission required:**
+- `action="draft"` → `create_posts`
+- `action="schedule"` → `create_posts` AND `publish_directly`
+
+**Response 201:** `PostResponse`
+
+**Errors:**
+- **403** `forbidden` — missing permission OR `social_account_id` outside allowlist
+- **422** `unprocessable_entity` — missing `scheduled_at` on schedule, disconnected account, workspace approval gate, idempotency-key body mismatch, missing media asset
+- **409** `conflict` — a concurrent peer holds the same `idempotency_key` in flight
+- **429** `rate_limited` — per-key / per-workspace / per-platform-quota — see [`reference/rate-limits.md`](reference/rate-limits.md)
+
+**Worked example:**
+```json
+POST /api/v1/posts/
+Authorization: Bearer bb_studio_...
+Idempotency-Key: agent-launch-2026-06-01
+Content-Type: application/json
+
+{
+  "social_account_id": "46332b33-21c9-4534-987f-ac1fb2daa906",
+  "caption": "Launching today!",
+  "action": "schedule",
+  "scheduled_at": "2026-06-01T14:00:00Z",
+  "first_comment": "Read the blog: https://example.com/launch",
+  "media_asset_ids": ["a1b2c3d4-..."]
+}
+```
+
+---
+
+#### `GET /posts/{post_id}`
+
+**Purpose:** Read a post + per-platform child state.
+
+**Request body:** none
+
+**Response 200:** `PostResponse`
+
+**Errors:**
+- **404** `not_found` — doesn't exist OR lives in another workspace OR has a child outside the key's allowlist. **All three are deliberately indistinguishable** so partial-scope keys can't enumerate foreign IDs.
+
+---
+
+#### `PATCH /posts/{post_id}`
+
+**Purpose:** Update editable fields on a draft, or re-time a
+scheduled post.
+
+**Request body** (all fields optional):
+
+| Parameter         | Type             | Notes |
+|-------------------|------------------|-------|
+| `caption`         | string ≤ 10 000  | Omit to leave unchanged. |
+| `title`           | string ≤ 255     | |
+| `first_comment`   | string ≤ 10 000  | |
+| `media_asset_ids` | array of UUIDs   | Sending this **replaces** the whole attachment set (not append). |
+| `scheduled_at`    | ISO 8601 UTC     | Re-times every currently-scheduled child. Drafts unaffected. |
+
+**Permission required:** `create_posts`.
+
+**Response 200:** `PostResponse`
+
+**Errors:**
+- **409** `conflict` — post not in an editable status (e.g. `published`)
+- **404** — same opacity rule as GET
+- **422** — bad media UUID; the entire PATCH rolls back atomically
+
+---
+
+#### `POST /posts/{post_id}/schedule`
+
+**Purpose:** Promote every draft child of a Post to `scheduled` at
+the same `scheduled_at`.
+
+**Request body:**
+
+| Parameter      | Type         | Req? |
+|----------------|--------------|------|
+| `scheduled_at` | ISO 8601 UTC | yes  |
+
+**Permission required:** `create_posts` AND `publish_directly`.
+
+**Response 200:** `PostResponse`
+
+**Errors:**
+- **409** — no draft children to schedule
+- **422** — workspace requires approval, state-machine conflict
+- **429** — per-account platform quota exceeded
+- **404** — same opacity rule
+
+---
+
+#### `POST /posts/{post_id}/cancel`
+
+**Purpose:** Transition every scheduled child back to `draft`.
+`Post.scheduled_at` is cleared.
+
+**Request body:** none (empty JSON object is also fine)
+
+**Permission required:** `create_posts`.
+
+**Response 200:** `PostResponse`
+
+**Errors:**
+- **409** — no scheduled children to cancel
+
+---
+
+### MCP tools
+
+Mounted at `POST /api/v1/mcp/`. Same `Authorization: Bearer` header
+as REST. Wire shape: JSON-RPC 2.0. Every tool call has the envelope:
 
 ```json
-{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
-  "name": "schedule_post",
-  "arguments": {
-    "social_account_id": "46332b33-21c9-4534-987f-ac1fb2daa906",
-    "caption": "Launching today!",
-    "scheduled_at": "2026-06-01T14:00:00Z",
-    "first_comment": "Read the full post: https://example.com/launch"
-  }
+{"jsonrpc": "2.0", "id": <any>, "method": "tools/call",
+ "params": {"name": "<tool>", "arguments": {...}}}
+```
+
+Tool results come back wrapped in `content`:
+
+```json
+{"jsonrpc": "2.0", "id": <any>, "result": {
+  "content": [{"type": "text", "text": "<JSON-stringified payload>"}],
+  "isError": false
 }}
 ```
 
-### Schedule an existing draft (separate route)
+The `text` field is a JSON-stringified version of the payload — `JSON.parse` it.
 
-`POST /api/v1/posts/{post_id}/schedule` (REST only)
+The 5 tools mirror the REST surface 1:1 with two intentional gaps
+called out below.
 
-| Parameter      | Type                | Req? | Notes |
-|----------------|---------------------|------|-------|
-| `post_id`      | UUID (URL path)     | yes  | The draft post to promote. |
-| `scheduled_at` | ISO 8601 UTC string | yes  | When to fire. |
+#### `list_accounts`
 
-There is no MCP-side equivalent for transitioning an *existing* draft
-— MCP's `schedule_post` always creates a new post in scheduled state.
-Two-step "draft, then schedule later" via MCP requires re-creating the
-post; via REST you can `POST /posts/ {action: "draft"}` and later
-`POST /posts/{id}/schedule {scheduled_at: ...}`.
+**Purpose:** List the connected accounts this key may act on.
+Equivalent to REST `GET /accounts/`.
 
-### Update a draft (or re-time a scheduled post)
+**Arguments:** none (`{}`)
 
-`PATCH /api/v1/posts/{post_id}` (REST only)
+**Returns:** text content wrapping `{"accounts": [AccountSummary, ...]}`
 
-| Parameter         | Type                | Req? | Notes |
-|-------------------|---------------------|------|-------|
-| `caption`         | string ≤ 10 000     | no   | Omit to leave unchanged. |
-| `title`           | string ≤ 255        | no   | |
-| `first_comment`   | string ≤ 10 000     | no   | |
-| `media_asset_ids` | array of UUIDs      | no   | Sending this **replaces** the entire attachment set. |
-| `scheduled_at`    | ISO 8601 UTC string | no   | Re-times every currently-scheduled child. Drafts unaffected. |
+---
 
-PATCH only works while the post is in an editable status (`draft`,
-`changes_requested`, `rejected`, `approved`, `scheduled`). Published
-posts can't be edited via the API.
+#### `create_draft`
 
-### Cancel a scheduled post (back to draft)
+**Purpose:** Create a draft post against a connected account.
+Equivalent to REST `POST /posts/ {action: "draft"}`.
 
-`POST /api/v1/posts/{post_id}/cancel` (REST) / `cancel_post` (MCP)
+**Arguments:**
 
-| Parameter | Type            | Req? | Notes |
-|-----------|-----------------|------|-------|
-| `post_id` | UUID            | yes  | URL path in REST, `arguments.post_id` in MCP. |
+| Argument            | Type            | Req? | Notes |
+|---------------------|-----------------|------|-------|
+| `social_account_id` | UUID            | yes  | Must be in allowlist. |
+| `caption`           | string ≤ 10 000 | yes  | |
+| `title`             | string ≤ 255    | no   | |
+| `first_comment`     | string ≤ 10 000 | no   | |
+| `media_asset_ids`   | array of UUIDs  | no   | |
 
-No body. Every scheduled child transitions back to `draft` and
-`Post.scheduled_at` is cleared.
+**Permission required:** `create_posts`.
 
-### Read a post
+**Returns:** text content wrapping `PostResponse` (with `status: "draft"`).
 
-`GET /api/v1/posts/{post_id}` (REST) / `get_post` (MCP)
+**Errors:** JSON-RPC `-32602 INVALID_PARAMS` on schema-validation
+failure (server enforces `inputSchema`), permission denied, allowlist
+miss, or disconnected account.
 
-| Parameter | Type | Req? | Notes |
-|-----------|------|------|-------|
-| `post_id` | UUID | yes  | URL path in REST, `arguments.post_id` in MCP. |
+---
 
-Returns the canonical `PostResponse` shape (id, caption, status,
-per-platform children, scheduled_at, published_at, …).
+#### `schedule_post`
 
-### Discovery
+**Purpose:** Create AND schedule a post in one call. Equivalent to
+REST `POST /posts/ {action: "schedule"}`.
 
-| Operation | REST | MCP | Parameters |
-|-----------|------|-----|------------|
-| List allowlisted accounts | `GET /api/v1/accounts/` | `list_accounts` | none |
-| Inspect the key's scope | `GET /api/v1/me/` | — | none |
+**Arguments:**
+
+| Argument            | Type            | Req? | Notes |
+|---------------------|-----------------|------|-------|
+| `social_account_id` | UUID            | yes  | |
+| `caption`           | string ≤ 10 000 | yes  | |
+| `scheduled_at`      | ISO 8601 UTC    | yes  | E.g. `"2026-06-01T14:00:00Z"`. |
+| `title`             | string ≤ 255    | no   | |
+| `first_comment`     | string ≤ 10 000 | no   | |
+| `media_asset_ids`   | array of UUIDs  | no   | |
+
+**Permission required:** `create_posts` AND `publish_directly`.
+
+**Returns:** text content wrapping `PostResponse` (with `status: "scheduled"`).
+
+> **Gap vs REST:** MCP has no equivalent of `POST /posts/{id}/schedule`
+> for promoting an *existing* draft. `schedule_post` always creates a
+> NEW post in `scheduled` state. To promote a draft via MCP, you'd have
+> to recreate; via REST you can transition in place.
+
+---
+
+#### `get_post`
+
+**Purpose:** Read a post by ID. Equivalent to REST `GET /posts/{id}`.
+
+**Arguments:**
+
+| Argument  | Type | Req? |
+|-----------|------|------|
+| `post_id` | UUID | yes  |
+
+**Returns:** text content wrapping `PostResponse`.
+
+**Errors:** `-32602 INVALID_PARAMS` with `"Post not found"` —
+indistinguishable from "exists but outside allowlist" or "exists in
+another workspace" (same opacity rule as REST).
+
+---
+
+#### `cancel_post`
+
+**Purpose:** Transition every scheduled child back to draft. Equivalent
+to REST `POST /posts/{id}/cancel`.
+
+**Arguments:**
+
+| Argument  | Type | Req? |
+|-----------|------|------|
+| `post_id` | UUID | yes  |
+
+**Permission required:** `create_posts`.
+
+**Returns:** text content wrapping `PostResponse` (with children now
+in `draft`).
+
+**Errors:** `-32602 INVALID_PARAMS` with `"No scheduled platform posts to cancel"`.
+
+---
+
+### MCP protocol methods (built-in)
+
+The MCP runtime handles these for most clients — listed for
+completeness so an agent rolling its own JSON-RPC over HTTP knows the
+full surface.
+
+| Method                        | Purpose                                          | Params                                  | Returns                                              |
+|-------------------------------|--------------------------------------------------|-----------------------------------------|------------------------------------------------------|
+| `initialize`                  | Handshake — declare protocol version + capabilities | `{protocolVersion, capabilities}`     | `{protocolVersion, capabilities, serverInfo}`        |
+| `notifications/initialized`   | Client signals it's ready (notification, no reply)| none                                    | — (server returns HTTP 202)                          |
+| `ping`                        | Liveness probe                                   | none                                    | `{}`                                                 |
+| `tools/list`                  | Discover the tools above                         | none                                    | `{tools: [{name, description, inputSchema}, ...]}`    |
+| `tools/call`                  | Invoke one of the 5 tools above                  | `{name: "<tool>", arguments: {...}}`    | `{content: [{type: "text", text: "<json>"}], isError: false}` |
+
+Batched JSON-RPC is supported: send an array, get an array back.
+Each message in the batch costs one rate-limit token (same accounting
+as N separate POSTs).
 
 ## Common workflows
 

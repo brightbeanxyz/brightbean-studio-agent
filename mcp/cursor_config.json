@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "Sample Cursor MCP config. Cursor reads MCP servers from",
+    "~/.cursor/mcp.json or the per-project .cursor/mcp.json file.",
+    "Same shape as Claude Desktop's — Streamable HTTP with a bearer header."
+  ],
+  "mcpServers": {
+    "brightbean-studio": {
+      "url": "https://studio.example.com/api/v1/mcp/",
+      "headers": {
+        "Authorization": "Bearer bb_studio_REPLACE_WITH_REAL_TOKEN"
+      }
+    }
+  }
+}

@@ -1,0 +1,722 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Brightbean Agent API",
+    "version": "1.0.0",
+    "description": "Programmatic access for external AI agents. Authentication is via scoped bearer tokens; create one from the Organization \u2192 API Keys page in the Brightbean Studio settings."
+  },
+  "paths": {
+    "/api/v1/me/": {
+      "get": {
+        "operationId": "apps_api_routers_me_me",
+        "summary": "Inspect the caller's scope",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/accounts/": {
+      "get": {
+        "operationId": "apps_api_routers_accounts_list_accounts",
+        "summary": "List the SocialAccounts this API key is allowed to act on",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountsListResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "accounts"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/posts/": {
+      "post": {
+        "operationId": "apps_api_routers_posts_create",
+        "summary": "Create a draft or scheduled post",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "posts"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePostRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/posts/{post_id}": {
+      "get": {
+        "operationId": "apps_api_routers_posts_retrieve",
+        "summary": "Read a single post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "schema": {
+              "format": "uuid",
+              "title": "Post Id",
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "posts"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "apps_api_routers_posts_update",
+        "summary": "Update draft fields",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "schema": {
+              "format": "uuid",
+              "title": "Post Id",
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "posts"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePostRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/posts/{post_id}/schedule": {
+      "post": {
+        "operationId": "apps_api_routers_posts_schedule",
+        "summary": "Schedule a draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "schema": {
+              "format": "uuid",
+              "title": "Post Id",
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "posts"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/posts/{post_id}/cancel": {
+      "post": {
+        "operationId": "apps_api_routers_posts_cancel",
+        "summary": "Cancel a scheduled post (back to draft)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "schema": {
+              "format": "uuid",
+              "title": "Post Id",
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "posts"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/mcp/": {
+      "post": {
+        "operationId": "apps_mcp_transport_mcp_endpoint",
+        "summary": "MCP Streamable HTTP endpoint (JSON-RPC over POST)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "description": "One endpoint handles single requests, notifications, and batches.\n\nPer the JSON-RPC 2.0 spec:\n  * Body is either an object (single message) or an array (batch).\n  * Notifications get no response \u2014 we return 202 Accepted with an\n    empty body when every message in the input was a notification.\n  * Otherwise we return 200 with the response JSON (object or array\n    matching the request shape).\n\nRate limiting is charged per JSON-RPC message, not per HTTP request,\nso a batch of N messages costs N tokens. We defer the\n``enforce_http_rate_limits`` call until we know whether the body is\na single message (charge once) or a batch (charge per element).\nCharging both up-front AND per-message would over-bill batches by\none token, as Codex review flagged.",
+        "tags": [
+          "mcp"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AccountSummary": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "account_name": {
+            "title": "Account Name",
+            "type": "string"
+          },
+          "account_handle": {
+            "default": "",
+            "title": "Account Handle",
+            "type": "string"
+          },
+          "connection_status": {
+            "title": "Connection Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "platform",
+          "account_name",
+          "connection_status"
+        ],
+        "title": "AccountSummary",
+        "type": "object"
+      },
+      "MeResponse": {
+        "description": "Echoes everything the key is scoped to so an agent can self-introspect.",
+        "properties": {
+          "api_key_id": {
+            "format": "uuid",
+            "title": "Api Key Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "title": "Workspace Id",
+            "type": "string"
+          },
+          "workspace_name": {
+            "title": "Workspace Name",
+            "type": "string"
+          },
+          "organization_id": {
+            "format": "uuid",
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "allowlisted_accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AccountSummary"
+            },
+            "title": "Allowlisted Accounts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "api_key_id",
+          "workspace_id",
+          "workspace_name",
+          "organization_id",
+          "permissions",
+          "allowlisted_accounts"
+        ],
+        "title": "MeResponse",
+        "type": "object"
+      },
+      "AccountsListResponse": {
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AccountSummary"
+            },
+            "title": "Accounts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "accounts"
+        ],
+        "title": "AccountsListResponse",
+        "type": "object"
+      },
+      "PlatformPostSummary": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "social_account_id": {
+            "format": "uuid",
+            "title": "Social Account Id",
+            "type": "string"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "scheduled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled At"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "platform_post_id": {
+            "default": "",
+            "title": "Platform Post Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "social_account_id",
+          "platform",
+          "status",
+          "scheduled_at",
+          "published_at"
+        ],
+        "title": "PlatformPostSummary",
+        "type": "object"
+      },
+      "PostResponse": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "title": "Workspace Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "caption": {
+            "title": "Caption",
+            "type": "string"
+          },
+          "first_comment": {
+            "title": "First Comment",
+            "type": "string"
+          },
+          "scheduled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled At"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "platform_posts": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformPostSummary"
+            },
+            "title": "Platform Posts",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "title",
+          "caption",
+          "first_comment",
+          "scheduled_at",
+          "published_at",
+          "status",
+          "platform_posts",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PostResponse",
+        "type": "object"
+      },
+      "CreatePostRequest": {
+        "description": "Create a draft or directly schedule a post against one account.\n\n``social_account_id`` MUST be in the key's allowlist; the auth class\nraises 403 otherwise.",
+        "properties": {
+          "social_account_id": {
+            "description": "ID of the SocialAccount to target. Must be in the key's allowlist.",
+            "format": "uuid",
+            "title": "Social Account Id",
+            "type": "string"
+          },
+          "caption": {
+            "maxLength": 10000,
+            "title": "Caption",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Title",
+            "type": "string"
+          },
+          "first_comment": {
+            "default": "",
+            "maxLength": 10000,
+            "title": "First Comment",
+            "type": "string"
+          },
+          "media_asset_ids": {
+            "description": "MediaAsset IDs already uploaded to the workspace's media library. Position-ordered.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Media Asset Ids",
+            "type": "array"
+          },
+          "action": {
+            "default": "draft",
+            "description": "``draft`` parks the post for later editing/scheduling; ``schedule`` requires ``scheduled_at`` and queues for publishing.",
+            "enum": [
+              "draft",
+              "schedule"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "scheduled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "UTC timestamp. Required when ``action='schedule'``.",
+            "title": "Scheduled At"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional client-chosen retry key. Same key + same body \u2192 replay first response.",
+            "title": "Idempotency Key"
+          }
+        },
+        "required": [
+          "social_account_id",
+          "caption"
+        ],
+        "title": "CreatePostRequest",
+        "type": "object"
+      },
+      "UpdatePostRequest": {
+        "properties": {
+          "caption": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "first_comment": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Comment"
+          },
+          "media_asset_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Asset Ids"
+          },
+          "scheduled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "If the post is currently scheduled, this re-times it. Ignored for drafts.",
+            "title": "Scheduled At"
+          }
+        },
+        "title": "UpdatePostRequest",
+        "type": "object"
+      },
+      "ScheduleRequest": {
+        "properties": {
+          "scheduled_at": {
+            "description": "UTC timestamp at which the publisher should fire the post.",
+            "format": "date-time",
+            "title": "Scheduled At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scheduled_at"
+        ],
+        "title": "ScheduleRequest",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "servers": []
+}

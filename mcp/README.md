@@ -24,9 +24,9 @@ Use the snippet in `cursor_config.json`.
 
 Most MCP-aware agent frameworks accept the same Streamable HTTP transport
 shape: an HTTPS URL + an `Authorization: Bearer ...` header. Point your
-framework at `https://<your-studio-host>/api/v1/mcp/` and pass the
-bearer in whatever header field your framework uses for static auth
-headers.
+framework at `https://studio.brightbean.xyz/api/v1/mcp/` (or your own
+host if self-hosted) and pass the bearer in whatever header field your
+framework uses for static auth headers.
 
 ## Why HTTP and not stdio?
 

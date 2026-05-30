@@ -2,11 +2,13 @@
   "_comment": [
     "Sample Cursor MCP config. Cursor reads MCP servers from",
     "~/.cursor/mcp.json or the per-project .cursor/mcp.json file.",
-    "Same shape as Claude Desktop's — Streamable HTTP with a bearer header."
+    "Same shape as Claude Desktop's — Streamable HTTP with a bearer header.",
+    "The URL defaults to the hosted Brightbean Studio at studio.brightbean.xyz;",
+    "change it if you self-host."
   ],
   "mcpServers": {
     "brightbean-studio": {
-      "url": "https://studio.example.com/api/v1/mcp/",
+      "url": "https://studio.brightbean.xyz/api/v1/mcp/",
       "headers": {
         "Authorization": "Bearer bb_studio_REPLACE_WITH_REAL_TOKEN"
       }

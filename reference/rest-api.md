@@ -1,6 +1,7 @@
 # REST API reference
 
-Base URL: `https://<your-studio-host>/api/v1/`
+Base URL: `https://studio.brightbean.xyz/api/v1/` (or your own host if you
+self-host Brightbean Studio).
 
 Auth: `Authorization: Bearer bb_studio_<random>_<lookup>` on every request.
 

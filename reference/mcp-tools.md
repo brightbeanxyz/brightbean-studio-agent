@@ -1,6 +1,7 @@
 # MCP tools reference
 
-Transport: Streamable HTTP at `https://<your-studio-host>/api/v1/mcp/`.
+Transport: Streamable HTTP at `https://studio.brightbean.xyz/api/v1/mcp/`
+(or your own host if self-hosted).
 Auth: same `Authorization: Bearer bb_studio_...` header as REST.
 
 ## Protocol version

@@ -218,5 +218,6 @@ The detailed docs are in `reference/`:
 If the user wants to wire Brightbean Studio into Claude Desktop, Cursor,
 or any MCP-aware client, point them at the snippets in
 `mcp/claude_desktop_config.json` and `mcp/cursor_config.json`. The
-streamable-HTTP transport lives at `https://<their-studio-host>/api/v1/mcp/`
-and authenticates with the same `bb_studio_...` bearer token.
+streamable-HTTP transport lives at `https://studio.brightbean.xyz/api/v1/mcp/`
+(or the user's own host if self-hosted) and authenticates with the same
+`bb_studio_...` bearer token.

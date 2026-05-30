@@ -2,8 +2,8 @@
 
 Pulls the two pieces of config every example needs from environment vars:
 
-* ``BRIGHTBEAN_BASE_URL`` — e.g. ``https://studio.example.com`` (no trailing
-  slash, no ``/api/v1``)
+* ``BRIGHTBEAN_BASE_URL`` — e.g. ``https://studio.brightbean.xyz`` (hosted)
+  or your own URL if you self-host. No trailing slash, no ``/api/v1``.
 * ``BRIGHTBEAN_TOKEN`` — the ``bb_studio_...`` bearer
 
 The class is intentionally minimal — a single ``Session`` with the

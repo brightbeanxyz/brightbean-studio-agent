@@ -3,7 +3,8 @@
 #
 # Source this from any example: ``source ./_common.sh``
 # Expects two env vars:
-#   BRIGHTBEAN_BASE_URL — e.g. https://studio.example.com
+#   BRIGHTBEAN_BASE_URL — e.g. https://studio.brightbean.xyz (or your own
+#                        host if self-hosted)
 #   BRIGHTBEAN_TOKEN    — the bb_studio_... bearer
 #
 # Provides:
@@ -16,7 +17,7 @@ set -euo pipefail
 
 if [[ -z "${BRIGHTBEAN_BASE_URL:-}" || -z "${BRIGHTBEAN_TOKEN:-}" ]]; then
     echo "Set BRIGHTBEAN_BASE_URL and BRIGHTBEAN_TOKEN before running." >&2
-    echo "  export BRIGHTBEAN_BASE_URL=https://studio.example.com" >&2
+    echo "  export BRIGHTBEAN_BASE_URL=https://studio.brightbean.xyz" >&2
     echo "  export BRIGHTBEAN_TOKEN=bb_studio_..." >&2
     exit 1
 fi

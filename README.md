@@ -29,9 +29,9 @@ Agent API.
    workspace and the social accounts the agent should act on. The token
    is shown **once** at issuance — the agent (or the user) must save
    it immediately.
-2. Set two env vars:
+2. Set two env vars (use your own host if self-hosted):
    ```bash
-   export BRIGHTBEAN_BASE_URL=https://studio.example.com
+   export BRIGHTBEAN_BASE_URL=https://studio.brightbean.xyz
    export BRIGHTBEAN_TOKEN=bb_studio_...
    ```
 3. Discover available accounts:

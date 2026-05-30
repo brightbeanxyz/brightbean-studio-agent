@@ -3,13 +3,15 @@
     "Sample Claude Desktop MCP config. Copy the 'brightbean-studio' entry",
     "into your real ~/Library/Application Support/Claude/claude_desktop_config.json",
     "(macOS) or %APPDATA%\\Claude\\claude_desktop_config.json (Windows).",
-    "Replace BASE_URL and BB_STUDIO_TOKEN with your actual values."
+    "Replace the bearer token with your actual one. The URL defaults to the",
+    "hosted Brightbean Studio at studio.brightbean.xyz; change it if you",
+    "self-host."
   ],
   "mcpServers": {
     "brightbean-studio": {
       "transport": {
         "type": "http",
-        "url": "https://studio.example.com/api/v1/mcp/",
+        "url": "https://studio.brightbean.xyz/api/v1/mcp/",
         "headers": {
           "Authorization": "Bearer bb_studio_REPLACE_WITH_REAL_TOKEN"
         }

@@ -375,8 +375,7 @@ Tool results come back wrapped in `content`:
 
 The `text` field is a JSON-stringified version of the payload — `JSON.parse` it.
 
-The 5 tools mirror the REST surface 1:1 with two intentional gaps
-called out below.
+The 6 tools mirror the REST surface 1:1.
 
 #### `list_accounts`
 
@@ -434,10 +433,37 @@ REST `POST /posts/ {action: "schedule"}`.
 
 **Returns:** text content wrapping `PostResponse` (with `status: "scheduled"`).
 
-> **Gap vs REST:** MCP has no equivalent of `POST /posts/{id}/schedule`
-> for promoting an *existing* draft. `schedule_post` always creates a
-> NEW post in `scheduled` state. To promote a draft via MCP, you'd have
-> to recreate; via REST you can transition in place.
+> **One-shot vs two-step:** `schedule_post` always creates a NEW post
+> in `scheduled` state. To promote an EXISTING draft to scheduled
+> (two-step "create_draft now, schedule later"), use the
+> [`schedule_draft`](#schedule_draft) tool below.
+
+---
+
+#### `schedule_draft`
+
+**Purpose:** Promote every draft child of an EXISTING post to
+`scheduled`. Equivalent to REST `POST /posts/{post_id}/schedule`.
+
+**Arguments:**
+
+| Argument       | Type         | Req? | Notes |
+|----------------|--------------|------|-------|
+| `post_id`      | UUID         | yes  | The draft post to promote. |
+| `scheduled_at` | ISO 8601 UTC | yes  | When the publisher should fire. |
+
+**Permission required:** `create_posts` AND `publish_directly`.
+
+**Returns:** text content wrapping `PostResponse` (with children now in `scheduled`).
+
+**Errors:**
+- `-32602 INVALID_PARAMS` `"No draft platform posts to schedule"` — post is already scheduled / cancelled / published
+- `-32602 INVALID_PARAMS` with quota message — per-platform 24h cap
+- `-32602 INVALID_PARAMS` `"Post not found"` — same opacity rule as `get_post`
+
+Per-account 24h platform quota is checked before any mutation; if
+over, the call fails atomically with no partial commit. The per-child
+transition loop is wrapped in `transaction.atomic()`, mirroring REST.
 
 ---
 
@@ -491,7 +517,7 @@ full surface.
 | `notifications/initialized`   | Client signals it's ready (notification, no reply)| none                                    | — (server returns HTTP 202)                          |
 | `ping`                        | Liveness probe                                   | none                                    | `{}`                                                 |
 | `tools/list`                  | Discover the tools above                         | none                                    | `{tools: [{name, description, inputSchema}, ...]}`    |
-| `tools/call`                  | Invoke one of the 5 tools above                  | `{name: "<tool>", arguments: {...}}`    | `{content: [{type: "text", text: "<json>"}], isError: false}` |
+| `tools/call`                  | Invoke one of the 6 tools above                  | `{name: "<tool>", arguments: {...}}`    | `{content: [{type: "text", text: "<json>"}], isError: false}` |
 
 Batched JSON-RPC is supported: send an array, get an array back.
 Each message in the batch costs one rate-limit token (same accounting

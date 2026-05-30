@@ -110,6 +110,32 @@ return the same `Post not found` error.
 Permission required: `create_posts`. Transitions every scheduled child
 back to `draft`. Errors if there are no scheduled children.
 
+### `schedule_draft`
+
+```json
+{
+  "name": "schedule_draft",
+  "arguments": {
+    "post_id": "uuid",
+    "scheduled_at": "ISO 8601 UTC"
+  }
+}
+```
+
+Permission required: `create_posts` AND `publish_directly`. Promotes
+every draft child of an EXISTING post to `scheduled` at the given
+timestamp. Per-account 24h platform quota is checked before any
+mutation. The per-child transition loop is wrapped in
+`transaction.atomic()` so a mid-loop failure rolls the whole call back.
+
+Use this for the two-step "create_draft now, schedule_draft later"
+flow. For one-shot create-and-schedule, use `schedule_post` instead.
+Errors with `INVALID_PARAMS` `"No draft platform posts to schedule"`
+if the post has no draft children.
+
+> The MCP tool catalog now mirrors the REST surface exactly — there is
+> no MCP/REST capability asymmetry left.
+
 ## Error code mapping (server-side audit)
 
 For your forensic queries, the server maps JSON-RPC error codes to HTTP

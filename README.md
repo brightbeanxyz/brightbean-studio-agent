@@ -24,12 +24,33 @@ Agent API.
 
 ## Install for AI agents
 
-There's no universal "install a skill" command yet — each agent
-runtime has its own discovery mechanism. The four realistic install
-paths are listed below, ranked roughly by how seamless they are.
-**Every path needs the same prerequisite**: the user must have minted a
-bearer token in Brightbean Studio (Organization Settings → API Keys →
-Issue new key) and saved it somewhere the agent can read.
+### Option 0 — one-liner via `npx skills` (recommended for Claude Code, Codex, OpenClaw)
+
+The [`skills`](https://www.npmjs.com/package/skills) package (by
+Vercel Labs) auto-detects the agentic CLI on your machine and drops
+this skill into the right directory:
+
+```bash
+npx skills@^1 add brightbeanxyz/brightbean-studio-agent
+```
+
+The `@^1` pins to the v1.x line of `skills` — the installer is moving
+fast and a major-version bump could change resolution semantics, so
+pin it.
+
+You still need to:
+
+1. **Mint a bearer token** in Brightbean Studio
+   (Organization Settings → API Keys → Issue new key) and export it:
+   ```bash
+   export BB_STUDIO_TOKEN=bb_studio_...
+   ```
+2. **(If your runtime speaks MCP)** add the Brightbean MCP server to
+   the runtime's config — see option 1 below for the JSON shape.
+
+Then ask your agent to schedule a post.
+
+**Every option below also needs the same bearer-token prerequisite.**
 
 ### 1. Claude Desktop / Cursor / any MCP-aware client (most seamless)
 

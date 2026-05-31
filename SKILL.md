@@ -36,6 +36,30 @@ Do NOT use this skill when:
   in Brightbean's `PlatformCredential.Platform` choices today)
 - The user wants analytics or comment moderation — not in scope for v1
 
+## Installation
+
+The fastest path for Claude Code, Codex, Cursor, OpenClaw, and other
+agentic CLIs is the [`skills`](https://www.npmjs.com/package/skills)
+installer — it auto-detects the runtime and drops this skill into the
+right directory:
+
+```bash
+npx skills@^1 add brightbeanxyz/brightbean-studio-agent
+```
+
+`@^1` pins to the v1.x line of the `skills` package; the installer is
+moving quickly, and pinning the major keeps the install reproducible.
+
+After install, the agent still needs a Brightbean bearer token and (for
+runtimes that speak MCP) an MCP server entry pointed at
+`https://studio.brightbean.xyz/api/v1/mcp/`. See **Quick start → Step 1**
+for the token; the [`mcp/`](mcp/) directory has Claude Desktop and Cursor
+config snippets.
+
+**Manual install** if you'd rather not use `npx`: clone this repo into
+the runtime's skill directory, e.g.
+`git clone https://github.com/brightbeanxyz/brightbean-studio-agent ~/.claude/skills/brightbean-studio`.
+
 ## Quick start
 
 The single most important question: **does the runtime have MCP access to a

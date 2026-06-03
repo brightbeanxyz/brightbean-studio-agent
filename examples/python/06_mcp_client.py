@@ -80,6 +80,41 @@ def main() -> None:
         print(f"  draft Post id: {draft['id']}")
         print(f"  status: {draft['platform_posts'][0]['status']}")
 
+        # Analytics tools — read-only, require view_analytics. If the key
+        # doesn't hold the permission, these blocks surface a clear
+        # "Permission denied" error rather than corrupting state.
+        print(f"\n=== get_account_analytics for {sa_id} (days=30) ===")
+        try:
+            channel = call_tool(
+                "get_account_analytics",
+                {"account_id": sa_id, "days": 30},
+            )
+        except RuntimeError as exc:
+            print(f"  (skipped: {exc})")
+        else:
+            if not channel["analytics_available"]:
+                print(f"  analytics_available=false: {channel['unavailable_reason']}")
+            else:
+                print(f"  hero_metrics: {len(channel['hero_metrics'])}")
+                for m in channel["hero_metrics"][:3]:
+                    print(f"    - {m['key']:14}  value={m['value']}  delta={m['delta']}%")
+                print(f"  captured_at:    {channel['captured_at']}")
+                print(f"  next_sync_eta:  {channel['next_sync_eta']}")
+
+        # The just-created draft has no analytics yet — but the tool
+        # responds with a valid empty envelope so the polling loop in
+        # 09_post_then_poll.py can start from day zero.
+        print(f"\n=== get_post_analytics for the draft above ===")
+        try:
+            perf = call_tool("get_post_analytics", {"post_id": draft["id"]})
+        except RuntimeError as exc:
+            print(f"  (skipped: {exc})")
+        else:
+            child = perf["platform_posts"][0]
+            print(f"  child status: {child['status']}")
+            print(f"  analytics_available: {child['analytics_available']}")
+            print(f"  metric_tiles: {len(child['metric_tiles'])}  (empty until publish)")
+
 
 if __name__ == "__main__":
     main()

@@ -142,6 +142,156 @@ Responses:
 - **200** — see [PostResponse](#postresponse).
 - **409** — no scheduled children to cancel.
 
+## Analytics endpoints
+
+Read-only. Both endpoints require the `view_analytics` permission on the
+key. Allowlist rules match the corresponding post endpoints: a key only
+sees analytics for accounts it could already post to.
+
+### `GET /analytics/accounts/{account_id}`
+
+Channel-wide analytics over a rolling 7 / 30 / 90-day window — hero KPIs,
+engagement card (where the platform exposes a denom), follower growth,
+plus freshness signals.
+
+Query parameters:
+
+| Parameter | Type    | Default | Constraint |
+|-----------|---------|---------|------------|
+| `days`    | integer | `30`    | `7 ≤ days ≤ 90` (Ninja Query, 422 on violation) |
+
+Permission required: `view_analytics`.
+
+Responses:
+- **200** — see [`AccountAnalyticsResponse`](#accountanalyticsresponse).
+- **403** `forbidden` — missing `view_analytics`, or `account_id`
+  outside the key's allowlist.
+- **422** `unprocessable_entity` — `days` out of range.
+
+Examples:
+```
+GET /api/v1/analytics/accounts/40fc50eb-edb9-4c70-a217-e58ed9e4d93c?days=30
+GET /api/v1/analytics/accounts/40fc50eb-edb9-4c70-a217-e58ed9e4d93c?days=7
+```
+
+### `GET /analytics/posts/{post_id}`
+
+Per-post analytics, with one envelope per `PlatformPost` child. The
+`post_id` argument is the parent `Post.id` (the same ID `POST /posts/`
+returned). For a single-account key the response carries one child; for
+multi-platform posts there is one entry per platform with its own
+`analytics_available` flag.
+
+Permission required: `view_analytics`.
+
+Responses:
+- **200** — see [`PostAnalyticsResponse`](#postanalyticsresponse).
+- **403** `forbidden` — missing `view_analytics`.
+- **404** `not_found` — same opacity rule as `GET /posts/{post_id}`
+  (doesn't exist, lives in another workspace, or has a child outside the
+  allowlist — all three are indistinguishable).
+
+Drafts and scheduled posts return `metric_tiles: []` and
+`captured_at: null` for each child (the envelope is valid, just empty,
+so polling loops don't have to special-case pre-publish state).
+
+Examples:
+```
+GET /api/v1/analytics/posts/73ffb281-0eba-4d0e-a06e-fdc6bcbd97e7
+```
+
+### `AccountAnalyticsResponse`
+
+```json
+{
+  "account_id":           "uuid",
+  "platform":             "youtube",
+  "account_name":         "PinkLion",
+  "connection_status":    "connected",
+  "days":                 30,
+  "analytics_available":  true,
+  "unavailable_reason":   null,
+  "hero_metrics":         [DerivedMetric, ...],
+  "engagement":           {
+    "rate":  DerivedMetric,
+    "parts": [DerivedMetric, ...]
+  } | null,
+  "follower_growth":      DerivedMetric | null,
+  "captured_at":          "2026-06-02T08:43:22Z" | null,
+  "next_sync_eta":        "2026-06-03T08:43:22Z" | null
+}
+```
+
+### `PostAnalyticsResponse`
+
+```json
+{
+  "post_id":        "uuid",
+  "workspace_id":   "uuid",
+  "title":          "",
+  "caption":        "string",
+  "platform_posts": [
+    {
+      "platform_post_id":    "uuid",
+      "social_account_id":   "uuid",
+      "platform":            "linkedin_company",
+      "status":              "published",
+      "published_at":        "2026-05-30T08:43:22Z" | null,
+      "analytics_available": true,
+      "unavailable_reason":  null,
+      "metric_tiles": [
+        {
+          "key":        "impressions",
+          "label":      "Impressions",
+          "kind":       "count",
+          "value":      2418,
+          "series":     [/* daily values since publish */],
+          "is_primary": true
+        }
+      ],
+      "captured_at":  "2026-06-02T08:43:22Z" | null,
+      "next_sync_eta": "2026-06-02T14:43:22Z" | null
+    }
+  ]
+}
+```
+
+### `DerivedMetric`
+
+```json
+{
+  "key":    "views",
+  "label":  "Views",
+  "kind":   "count",       // "count" | "percent" | "minutes"
+  "value":  32411.33,      // aggregate over the window (sum for counts, avg for rates)
+  "delta":  -8.8,          // % change vs. the prior equal-length window
+  "series": [970.1, /* … */]
+}
+```
+
+### Polling cadence
+
+Use `next_sync_eta` to decide when to poll again. The per-post ladder:
+
+| Post age            | Refresh interval |
+|---------------------|------------------|
+| < 24 h              | hourly           |
+| 1 – 7 days          | every 6 h        |
+| 7 – 30 days         | daily            |
+| 30 – 90 days        | weekly           |
+| > 90 days           | sync has stopped — `next_sync_eta: null` |
+
+Account-level analytics refresh once per day. A just-connected account
+has `captured_at: null` and `next_sync_eta ≈ now + 5 min`.
+
+### Unavailable platforms
+
+`linkedin_personal`, `bluesky`, and `mastodon` don't expose aggregate
+analytics; their responses set `analytics_available: false` and
+`unavailable_reason: "<message>"`. An admin can also disable a platform
+globally in `AnalyticsPlatformConfig`; that produces the same shape
+with `"Analytics is not currently enabled for this platform."`.
+
 ## `PostResponse`
 
 The shape every post-returning endpoint emits:

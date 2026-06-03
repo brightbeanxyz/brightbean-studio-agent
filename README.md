@@ -191,10 +191,11 @@ audit log, rate limits, idempotency, and platform quotas — there's no
 │   ├── mcp-tools.md
 │   ├── errors.md
 │   ├── rate-limits.md
-│   └── workflows.md
+│   ├── workflows.md
+│   └── analytics.md
 ├── examples/
-│   ├── python/                         ← reusable client + 6 scripts
-│   └── shell/                          ← 7 curl scripts
+│   ├── python/                         ← reusable client + 9 scripts
+│   └── shell/                          ← 9 curl scripts
 ├── mcp/                                ← Claude Desktop & Cursor configs
 └── docs/
     └── openapi.json                    ← snapshot of /api/v1/openapi.json

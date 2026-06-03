@@ -1,14 +1,16 @@
 ---
 name: brightbean-studio
 description: |
-  Draft, schedule, update, and cancel social-media posts via the Brightbean
-  Studio Agent API. Trigger when the user wants to publish or schedule a post
-  to LinkedIn (personal or company), Facebook, Instagram, TikTok, YouTube,
-  Pinterest, Threads, Mastodon, Bluesky, or Google Business through a
-  Brightbean Studio workspace, or to inspect / cancel posts already
-  scheduled there. Works with both Streamable HTTP MCP (preferred when
-  available) and a REST API at `/api/v1/...`. Requires a `bb_studio_...`
-  bearer token issued from the Brightbean Studio org settings.
+  Draft, schedule, update, cancel, AND inspect the performance of social-media
+  posts via the Brightbean Studio Agent API. Trigger when the user wants to
+  publish or schedule a post to LinkedIn (personal or company), Facebook,
+  Instagram, TikTok, YouTube, Pinterest, Threads, Mastodon, Bluesky, or Google
+  Business through a Brightbean Studio workspace, to inspect or cancel posts
+  already scheduled there, OR to read channel-level and per-post analytics
+  (views, reach, engagement rate, follower growth, daily sparklines). Works
+  with both Streamable HTTP MCP (preferred when available) and a REST API at
+  `/api/v1/...`. Requires a `bb_studio_...` bearer token issued from the
+  Brightbean Studio org settings.
 ---
 
 # Brightbean Studio Agent
@@ -28,13 +30,20 @@ Use when the user asks to:
 - Inspect the status of a post you previously created
 - Cancel a scheduled post
 - List the connected accounts available to act on
+- Look up how a recent post performed, or how a channel is trending —
+  views, reach, engagement rate, follower growth, daily sparklines
+
+Analytics are **read-only and additive** — they let the agent see results,
+but they don't post, cancel, or mutate anything. To act on what the agent
+observes, use the write tools (`schedule_post`, `cancel_post`, etc.) which
+keep their own permissions.
 
 Do NOT use this skill when:
 
 - The user only wants help writing copy (no schedule/publish involved)
 - The platform isn't on the supported list above (e.g. native X/Twitter — not
   in Brightbean's `PlatformCredential.Platform` choices today)
-- The user wants analytics or comment moderation — not in scope for v1
+- The user wants comment moderation or inbox replies — not in scope for v1
 
 ## Installation
 
@@ -84,6 +93,12 @@ the user says "I haven't created one yet," walk them through:
    - **`create_posts`** — required for drafting and editing
    - **`publish_directly`** — required for scheduling (the API splits
      these so an editor can draft but only a publisher can schedule)
+   - **`view_analytics`** — **read-only** access to channel and per-post
+     analytics. Does *not* let the agent cancel, re-schedule, or modify
+     anything. Pair with `create_posts` if you want the agent to learn
+     from past performance when drafting the next post; issue a
+     `view_analytics`-only key when you want the agent to *observe* but
+     not *act*.
 6. Copy the plaintext token from the one-time reveal modal. **Brightbean
    doesn't store it; if the user closes that modal, they need to issue a
    new key.**
@@ -130,6 +145,32 @@ in `apps/social_accounts/models.py::SocialAccount.char_limit`:
 
 Always confirm with the user before scheduling — there is no built-in
 "are you sure?" gate beyond `publish_directly` permission.
+
+### Step 4 — Observe and learn (optional)
+
+Once a post is published, you can read its performance with the analytics
+tools. The two questions the agent will typically want answered:
+
+- **"How is this channel doing?"** — MCP: `get_account_analytics` /
+  REST: `GET /api/v1/analytics/accounts/{account_id}?days=7|30|90`. Returns
+  hero KPIs (views, reach, etc.) + engagement rate + follower growth, each
+  as a `DerivedMetric` with `value`, `delta` (% vs. the prior window),
+  `series` (daily sparkline), and `kind`.
+- **"How did that post perform?"** — MCP: `get_post_analytics` /
+  REST: `GET /api/v1/analytics/posts/{post_id}`. Returns per-platform
+  metric tiles (latest value + daily sparkline since publish) for the
+  same `post_id` `schedule_post` / `create_draft` returned.
+
+Both surfaces include `captured_at` and `next_sync_eta` — use
+`next_sync_eta` to decide when to poll again so you don't refresh faster
+than the backend syncs. See the **Analytics polling cadence** subsection
+under [Critical contracts](#critical-contracts) below for the rules.
+
+The analytics surface is **observation only**: it does not unlock
+mutating tools. If the agent decides (with the user) that a scheduled
+post should be cancelled or re-scheduled based on what the analytics
+show, the action still goes through `cancel_post` / `schedule_post`
+(which need `create_posts` ± `publish_directly`).
 
 ## Endpoint reference
 
@@ -203,6 +244,88 @@ transitions from individual `platform_posts[]` rows.
 }
 ```
 On 429s the matching `Retry-After` HTTP header is also set.
+
+**`DerivedMetric`** (every analytics number — hero KPI, engagement, growth, tile)
+```json
+{
+  "key":    "views",                  // metric identifier
+  "label":  "Views",                  // human label
+  "kind":   "count",                  // "count" | "percent" | "minutes"
+  "value":  32411.33,                 // aggregate over the window (sum for counts, avg for rates)
+  "delta":  -8.8,                     // % change vs. the prior equal-length window
+  "series": [970.1, 1427.6, /*…*/]    // daily values for the current window
+}
+```
+
+**`EngagementCard`** (account analytics only; `null` on platforms without a denom)
+```json
+{
+  "rate":  DerivedMetric,           // engagement rate %
+  "parts": [DerivedMetric, ...]     // its numerator components (likes, comments, shares, …)
+}
+```
+
+**`AccountAnalyticsResponse`** (return shape of `GET /analytics/accounts/{id}`)
+```json
+{
+  "account_id":           "uuid",
+  "platform":             "youtube",
+  "account_name":         "PinkLion",
+  "connection_status":    "connected|token_expiring|disconnected|error",
+  "days":                 30,                // window size used (one of 7, 30, 90)
+  "analytics_available":  true,
+  "unavailable_reason":   null,              // string when analytics_available=false
+  "hero_metrics":         [DerivedMetric, ...],
+  "engagement":           EngagementCard | null,
+  "follower_growth":      DerivedMetric | null,
+  "captured_at":          "ISO 8601 | null",
+  "next_sync_eta":        "ISO 8601 | null"  // when the backend next refreshes
+}
+```
+
+**`PlatformPostAnalyticsResponse`** (one entry per platform child of a post)
+```json
+{
+  "platform_post_id":     "uuid",
+  "social_account_id":    "uuid",
+  "platform":             "linkedin_company",
+  "status":               "published|draft|scheduled|…",
+  "published_at":         "ISO 8601 | null",
+  "analytics_available":  true,
+  "unavailable_reason":   null,
+  "metric_tiles":         [
+    {
+      "key":        "impressions",
+      "label":      "Impressions",
+      "kind":       "count",
+      "value":      2418,
+      "series":     [/* daily values since publish */],
+      "is_primary": true
+    }
+  ],
+  "captured_at":          "ISO 8601 | null",
+  "next_sync_eta":        "ISO 8601 | null"
+}
+```
+
+**`PostAnalyticsResponse`** (return shape of `GET /analytics/posts/{id}`)
+```json
+{
+  "post_id":        "uuid",
+  "workspace_id":   "uuid",
+  "title":          "",
+  "caption":        "string",
+  "platform_posts": [PlatformPostAnalyticsResponse, ...]
+}
+```
+
+Drafts and scheduled posts return `analytics_available: true` with
+`metric_tiles: []` and `captured_at: null` — a stable empty envelope so
+polling loops have something to chew on before publish.
+
+Platforms in the no-analytics set (`linkedin_personal`, `bluesky`,
+`mastodon`) return `analytics_available: false` with a non-null
+`unavailable_reason`. Don't retry these — the answer won't change.
 
 ---
 
@@ -378,6 +501,70 @@ the same `scheduled_at`.
 
 ---
 
+#### `GET /analytics/accounts/{account_id}`
+
+**Purpose:** Read channel-wide analytics over a rolling 7 / 30 / 90-day
+window — hero KPIs, engagement card (where the platform exposes a denom),
+follower growth, plus freshness signals so the agent knows when to poll
+again.
+
+**Request body:** none
+
+**Query parameters:**
+
+| Parameter | Type    | Req? | Notes |
+|-----------|---------|------|-------|
+| `days`    | integer | no (default `30`) | One of 7 / 30 / 90. Ninja enforces `7 ≤ days ≤ 90` and 422s on violation. |
+
+**Permission required:** `view_analytics` (read-only).
+
+**Response 200:** `AccountAnalyticsResponse`
+
+**Errors:**
+- **403** `forbidden` — missing `view_analytics`, or `account_id` outside the key's allowlist
+- **422** `unprocessable_entity` — `days` out of range
+- **401** — bad / missing bearer
+
+**Worked example:**
+```
+GET /api/v1/analytics/accounts/40fc50eb-edb9-4c70-a217-e58ed9e4d93c?days=30
+Authorization: Bearer bb_studio_...
+```
+
+---
+
+#### `GET /analytics/posts/{post_id}`
+
+**Purpose:** Read a post's analytics, broken down per platform. Pass the
+parent `Post.id` you got from `schedule_post` / `create_draft`; the
+response carries an entry per `PlatformPost` child with its own
+`metric_tiles`, `captured_at`, and `next_sync_eta`.
+
+**Request body:** none
+
+**Permission required:** `view_analytics` (read-only).
+
+**Response 200:** `PostAnalyticsResponse`
+
+**Errors:**
+- **403** `forbidden` — missing `view_analytics`
+- **404** `not_found` — same opacity rule as `GET /posts/{id}` (doesn't
+  exist OR lives in another workspace OR has a child outside the
+  allowlist; all three are indistinguishable)
+
+**Worked example:**
+```
+GET /api/v1/analytics/posts/73ffb281-0eba-4d0e-a06e-fdc6bcbd97e7
+Authorization: Bearer bb_studio_...
+```
+
+Drafts and scheduled posts return an empty-but-valid envelope (each
+child has `metric_tiles: []`, `captured_at: null`); platforms without
+analytics (LinkedIn Personal, Bluesky, Mastodon) return
+`analytics_available: false, unavailable_reason: "..."` per child.
+
+---
+
 ### MCP tools
 
 Mounted at `POST /api/v1/mcp/`. Same `Authorization: Bearer` header
@@ -399,7 +586,7 @@ Tool results come back wrapped in `content`:
 
 The `text` field is a JSON-stringified version of the payload — `JSON.parse` it.
 
-The 6 tools mirror the REST surface 1:1.
+The 8 tools mirror the REST surface 1:1.
 
 #### `list_accounts`
 
@@ -529,6 +716,53 @@ in `draft`).
 
 ---
 
+#### `get_account_analytics`
+
+**Purpose:** Read a channel's analytics over a rolling 7 / 30 / 90-day
+window. Equivalent to REST `GET /analytics/accounts/{account_id}`.
+
+**Arguments:**
+
+| Argument     | Type    | Req? | Notes |
+|--------------|---------|------|-------|
+| `account_id` | UUID    | yes  | Must be in the key's allowlist. |
+| `days`       | integer | no (default `30`) | One of 7 / 30 / 90. Validated server-side via JSON Schema; out-of-range returns `-32602 INVALID_PARAMS`. |
+
+**Permission required:** `view_analytics` (read-only).
+
+**Returns:** text content wrapping `AccountAnalyticsResponse`.
+
+**Errors:** `-32602 INVALID_PARAMS` on schema-validation failure
+(`days` outside 7-90), missing `view_analytics`, or `account_id` outside
+the allowlist.
+
+---
+
+#### `get_post_analytics`
+
+**Purpose:** Read a post's analytics, broken down per platform.
+Equivalent to REST `GET /analytics/posts/{post_id}`. Use in a polling
+loop after `schedule_post` / `create_draft` to see how a post is
+performing — drafts and scheduled posts return an empty `metric_tiles`
+array (not an error), so the loop is safe to call from day zero.
+
+**Arguments:**
+
+| Argument  | Type | Req? | Notes |
+|-----------|------|------|-------|
+| `post_id` | UUID | yes  | The parent `Post.id` returned by `schedule_post` / `create_draft`. |
+
+**Permission required:** `view_analytics` (read-only).
+
+**Returns:** text content wrapping `PostAnalyticsResponse`.
+
+**Errors:** `-32602 INVALID_PARAMS` with `"Post not found"` —
+indistinguishable from "exists but outside allowlist" or "exists in
+another workspace" (same opacity rule as `get_post`); also
+`"Permission denied: view_analytics"` when the key lacks the permission.
+
+---
+
 ### MCP protocol methods (built-in)
 
 The MCP runtime handles these for most clients — listed for
@@ -621,6 +855,43 @@ body like `{"error": "rate_limited", "tier": "platform_quota:instagram",
 `platform_quota:*` 429 means "try a different account" or "wait until
 tomorrow"; a `per_key_writes` 429 means "slow down."
 
+### Analytics polling cadence
+
+When the agent polls analytics in a loop, follow the freshness fields the
+response carries — don't poll on a fixed wall clock and don't refresh
+faster than the backend syncs.
+
+- **`captured_at`** is the most recent snapshot timestamp the backend has
+  for this account/post. `null` means the sync hasn't run yet (just-
+  connected account, or a post still inside its first sync window) —
+  treat it as "no data, check back soon".
+- **`next_sync_eta`** is the backend's estimated next refresh. Wait at
+  least until that timestamp before polling again. Polling earlier
+  returns the same `captured_at` and burns rate-limit budget.
+- The per-post sync ladder (mirrored from
+  `apps/analytics/tasks.post_sync_interval`):
+
+  | Post age            | Refresh interval |
+  |---------------------|------------------|
+  | < 24 h              | hourly           |
+  | 1 – 7 days          | every 6 h        |
+  | 7 – 30 days         | daily            |
+  | 30 – 90 days        | weekly           |
+  | > 90 days           | sync has stopped — `next_sync_eta: null` |
+
+- Account-level analytics refresh once per day; for a just-connected
+  account both fields are `null` and the API hints back with
+  `next_sync_eta ≈ now + 5 min`.
+- **`analytics_available: false` + `unavailable_reason: "..."`** means
+  the platform itself doesn't expose aggregate analytics
+  (`linkedin_personal`, `bluesky`, `mastodon`) **or** an admin has
+  disabled the platform in `AnalyticsPlatformConfig`. Don't retry — the
+  answer won't change without an operator action.
+- The analytics surface is **read-only**. `view_analytics` does not
+  unlock `cancel_post` / `schedule_post` / `create_draft`. If the agent
+  decides (with the user) to act on what it observed, the mutation
+  flows through the existing write tools and their own permissions.
+
 ### Error envelope
 
 All 4xx/5xx (HTTP and the equivalent inside JSON-RPC) follow the same
@@ -651,7 +922,11 @@ The detailed docs are in `reference/`:
 - `reference/errors.md` — every error you can get and how to recover
 - `reference/rate-limits.md` — the six-tier limit system in full
 - `reference/workflows.md` — recipes (draft → review → schedule, schedule
-  → cancel, schedule → reschedule, multi-account fan-out)
+  → cancel, schedule → reschedule, multi-account fan-out, schedule → poll
+  for performance, channel-health check, learn from last N posts)
+- `reference/analytics.md` — metrics catalog per platform, engagement-rate
+  formula, freshness model, sync cadence ladder, unavailable platforms,
+  admin-toggle gate
 
 ## MCP server configuration
 

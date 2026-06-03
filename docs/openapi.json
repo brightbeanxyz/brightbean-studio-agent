@@ -3,7 +3,7 @@
   "info": {
     "title": "Brightbean Agent API",
     "version": "1.0.0",
-    "description": "Programmatic access for external AI agents. Authentication is via scoped bearer tokens; create one from the Organization \u2192 API Keys page in the Brightbean Studio settings."
+    "description": "Programmatic access for external AI agents. Authentication is via scoped bearer tokens; create one from the Organization \u2192 API Keys page in the Brightbean Studio settings.\n\n**Rate limits.** Per-key write rate is 120/min, read 300/min, with a 1000/min aggregate cap per workspace. Limits are enforced as HTTP 429 with a JSON body that includes `tier`, `limit`, `remaining`, `retry_after`, and a `Retry-After` header. Headers `X-RateLimit-Limit` and `X-RateLimit-Remaining` are emitted **only on 429 responses**, not on every response.\n\n**Per-platform daily caps.** Posting against a connected account is also bounded by a per-`SocialAccount` 24-hour rolling cap (e.g. Instagram 25/day, LinkedIn 100/day). Over-quota requests return 429 with the same error body shape, computed `retry_after` tells you when the oldest counting row ages out.\n\n**First comments.** When a target account's `supports_first_comment` is `false` (TikTok, Pinterest, Bluesky, Google Business; LinkedIn Personal in OIDC mode), the `first_comment` field is silently dropped at publish time \u2014 call `GET /accounts/` or `GET /me/` first to check before composing.\n\n**Deleting posts.** Posts cannot be deleted via the API in v1. Cancel a scheduled post with `POST /posts/{id}/cancel`; remove drafts from the workspace's drafts list in the web UI. Published posts are never deletable \u2014 they remain as audit records."
   },
   "paths": {
     "/api/v1/me/": {
@@ -277,6 +277,416 @@
         ]
       }
     },
+    "/api/v1/media/": {
+      "post": {
+        "operationId": "apps_api_routers_media_upload",
+        "summary": "Upload a new media asset (multipart/form-data)",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaAssetResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Upload a binary into the workspace's media library.\n\nBody is ``multipart/form-data`` because agents posting videos can't\ncleanly base64-encode 100 MB into JSON. MCP gets a separate\n``upload_media`` tool that accepts base64 for small files (\u22645 MB).\n\n``alt_text`` / ``title`` / ``folder_id`` / ``tags`` are optional and\npersisted alongside the asset, saving the agent a follow-up PATCH.\n``tags`` is a CSV (\"hero,launch\") because multipart can't carry JSON\narrays cleanly.",
+        "tags": [
+          "media"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "format": "binary",
+                    "title": "File",
+                    "type": "string"
+                  },
+                  "alt_text": {
+                    "default": "",
+                    "title": "Alt Text",
+                    "type": "string"
+                  },
+                  "title": {
+                    "default": "",
+                    "title": "Title",
+                    "type": "string"
+                  },
+                  "folder_id": {
+                    "anyOf": [
+                      {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Folder Id"
+                  },
+                  "tags": {
+                    "default": "",
+                    "title": "Tags",
+                    "type": "string"
+                  },
+                  "idempotency_key": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Idempotency Key"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "title": "MultiPartBodyParams",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "apps_api_routers_media_list_media",
+        "summary": "List media assets \u2014 recency-first, with filters for the reuse case",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Substring search on filename + tags.",
+              "title": "Q"
+            },
+            "required": false,
+            "description": "Substring search on filename + tags."
+          },
+          {
+            "in": "query",
+            "name": "media_type",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "image | video | gif | document",
+              "title": "Media Type"
+            },
+            "required": false,
+            "description": "image | video | gif | document"
+          },
+          {
+            "in": "query",
+            "name": "tags",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated tags; ALL must match.",
+              "title": "Tags"
+            },
+            "required": false,
+            "description": "Comma-separated tags; ALL must match."
+          },
+          {
+            "in": "query",
+            "name": "folder_id",
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Folder Id"
+            },
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "is_starred",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Starred"
+            },
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "processing_status",
+            "schema": {
+              "default": "completed",
+              "description": "Default ``completed`` so agents never reference half-processed assets. Set to ``any`` to include in-flight uploads.",
+              "title": "Processing Status",
+              "type": "string"
+            },
+            "required": false,
+            "description": "Default ``completed`` so agents never reference half-processed assets. Set to ``any`` to include in-flight uploads."
+          },
+          {
+            "in": "query",
+            "name": "created_after",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created After"
+            },
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "created_before",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created Before"
+            },
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "order_by",
+            "schema": {
+              "default": "-created_at",
+              "title": "Order By",
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            },
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaAssetListResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "media"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/media/{media_id}": {
+      "get": {
+        "operationId": "apps_api_routers_media_retrieve",
+        "summary": "Retrieve a single media asset",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "media_id",
+            "schema": {
+              "format": "uuid",
+              "title": "Media Id",
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaAssetResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "media"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/analytics/accounts/{account_id}": {
+      "get": {
+        "operationId": "apps_api_routers_analytics_account_analytics",
+        "summary": "Read channel analytics summary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "schema": {
+              "default": 30,
+              "description": "Rolling window size in days. Must be between 7 and 90 inclusive. The ``derive`` helper needs 2\u00d7 this many days of snapshots to compute the period-over-period delta, so the cap keeps DB scans bounded.",
+              "maximum": 90,
+              "minimum": 7,
+              "title": "Days",
+              "type": "integer"
+            },
+            "required": false,
+            "description": "Rolling window size in days. Must be between 7 and 90 inclusive. The ``derive`` helper needs 2\u00d7 this many days of snapshots to compute the period-over-period delta, so the cap keeps DB scans bounded."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountAnalyticsResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "analytics"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/analytics/posts/{post_id}": {
+      "get": {
+        "operationId": "apps_api_routers_analytics_post_analytics",
+        "summary": "Read post analytics with per-platform metrics",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "schema": {
+              "format": "uuid",
+              "title": "Post Id",
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostAnalyticsResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "analytics"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    },
     "/api/v1/mcp/": {
       "post": {
         "operationId": "apps_mcp_transport_mcp_endpoint",
@@ -324,6 +734,24 @@
           "connection_status": {
             "title": "Connection Status",
             "type": "string"
+          },
+          "char_limit": {
+            "default": 2200,
+            "description": "Maximum caption length the platform accepts. Reject locally before calling /posts.",
+            "title": "Char Limit",
+            "type": "integer"
+          },
+          "needs_title": {
+            "default": false,
+            "description": "True when the platform requires a title (YouTube, Pinterest). When false, the title field is ignored.",
+            "title": "Needs Title",
+            "type": "boolean"
+          },
+          "supports_first_comment": {
+            "default": true,
+            "description": "True when the platform can auto-post a first comment after publish. False for TikTok, Pinterest, Bluesky, Google Business. LinkedIn Personal returns false when authorized via OIDC instead of the Community Management API. If false, ``first_comment`` is silently dropped at publish time.",
+            "title": "Supports First Comment",
+            "type": "boolean"
           }
         },
         "required": [
@@ -364,6 +792,9 @@
             "title": "Permissions",
             "type": "array"
           },
+          "storage": {
+            "$ref": "#/components/schemas/StorageSummary"
+          },
           "allowlisted_accounts": {
             "items": {
               "$ref": "#/components/schemas/AccountSummary"
@@ -378,9 +809,39 @@
           "workspace_name",
           "organization_id",
           "permissions",
+          "storage",
           "allowlisted_accounts"
         ],
         "title": "MeResponse",
+        "type": "object"
+      },
+      "StorageSummary": {
+        "properties": {
+          "used_bytes": {
+            "title": "Used Bytes",
+            "type": "integer"
+          },
+          "limit_bytes": {
+            "title": "Limit Bytes",
+            "type": "integer"
+          },
+          "remaining_bytes": {
+            "title": "Remaining Bytes",
+            "type": "integer"
+          },
+          "plan_slug": {
+            "default": "",
+            "description": "IntelligenceSubscription plan slug; empty if no active subscription.",
+            "title": "Plan Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "used_bytes",
+          "limit_bytes",
+          "remaining_bytes"
+        ],
+        "title": "StorageSummary",
         "type": "object"
       },
       "AccountsListResponse": {
@@ -422,7 +883,6 @@
           "scheduled_at": {
             "anyOf": [
               {
-                "format": "date-time",
                 "type": "string"
               },
               {
@@ -434,7 +894,6 @@
           "published_at": {
             "anyOf": [
               {
-                "format": "date-time",
                 "type": "string"
               },
               {
@@ -487,7 +946,6 @@
           "scheduled_at": {
             "anyOf": [
               {
-                "format": "date-time",
                 "type": "string"
               },
               {
@@ -499,7 +957,6 @@
           "published_at": {
             "anyOf": [
               {
-                "format": "date-time",
                 "type": "string"
               },
               {
@@ -520,14 +977,26 @@
             "type": "array"
           },
           "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
           },
           "updated_at": {
-            "format": "date-time",
-            "title": "Updated At",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
           }
         },
         "required": [
@@ -562,12 +1031,14 @@
           },
           "title": {
             "default": "",
+            "description": "Required on platforms where ``needs_title=true`` (YouTube, Pinterest). Ignored otherwise.",
             "maxLength": 255,
             "title": "Title",
             "type": "string"
           },
           "first_comment": {
             "default": "",
+            "description": "Auto-posted as a reply ~120s after the main post lands. Silently dropped at publish time when the target account's ``supports_first_comment`` is false (TikTok, Pinterest, Bluesky, Google Business; LinkedIn Personal in OIDC mode).",
             "maxLength": 10000,
             "title": "First Comment",
             "type": "string"
@@ -579,6 +1050,14 @@
               "type": "string"
             },
             "title": "Media Asset Ids",
+            "type": "array"
+          },
+          "platform_overrides": {
+            "description": "Optional per-platform overrides of title / caption / first_comment. Each entry's social_account_id must equal the post's social_account_id in the current single-account API. Sending a field as ``null`` (or omitting it) leaves the post's default in place for that platform.",
+            "items": {
+              "$ref": "#/components/schemas/PlatformOverride"
+            },
+            "title": "Platform Overrides",
             "type": "array"
           },
           "action": {
@@ -623,6 +1102,58 @@
           "caption"
         ],
         "title": "CreatePostRequest",
+        "type": "object"
+      },
+      "PlatformOverride": {
+        "description": "Per-account override of the post's title/caption/first_comment.\n\nMirrors the three form fields the cookie-authenticated UI accepts\n(see [apps/composer/views.py:85-96]). Maps to the model's\n``platform_specific_*`` columns on ``PlatformPost``.\n\nEach field is independent: omit a field (or send ``null``) to keep\nthe post's default for that platform. Send a string (including ``\"\"``\nto explicitly blank out the value just for this platform) to apply\nthe override.",
+        "properties": {
+          "social_account_id": {
+            "description": "Must reference an account that is a child of this post.",
+            "format": "uuid",
+            "title": "Social Account Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "caption": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption"
+          },
+          "first_comment": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Comment"
+          }
+        },
+        "required": [
+          "social_account_id"
+        ],
+        "title": "PlatformOverride",
         "type": "object"
       },
       "UpdatePostRequest": {
@@ -708,6 +1239,574 @@
           "scheduled_at"
         ],
         "title": "ScheduleRequest",
+        "type": "object"
+      },
+      "MediaAssetResponse": {
+        "description": "Single MediaAsset as exposed to the API.\n\n``url`` is whatever ``MediaAsset.file.url`` resolves to \u2014 a presigned\nURL with a configurable TTL on S3/R2, or a local ``/media/...`` path\non local storage. Agents should treat it as short-lived and always\nreference the asset by ``id`` in subsequent calls.\n\n``last_used_at`` is the max ``created_at`` across every Post that\nreferences this asset via ``PostMedia``. It is populated only on\nlist/detail responses, never on the upload 201.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "organization_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Id"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "mime_type": {
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "file_size": {
+            "title": "File Size",
+            "type": "integer"
+          },
+          "file_size_display": {
+            "title": "File Size Display",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          },
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "aspect_ratio": {
+            "title": "Aspect Ratio",
+            "type": "number"
+          },
+          "duration": {
+            "title": "Duration",
+            "type": "number"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "alt_text": {
+            "title": "Alt Text",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          },
+          "is_starred": {
+            "title": "Is Starred",
+            "type": "boolean"
+          },
+          "is_shared": {
+            "title": "Is Shared",
+            "type": "boolean"
+          },
+          "processing_status": {
+            "title": "Processing Status",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Url"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "organization_id",
+          "workspace_id",
+          "filename",
+          "media_type",
+          "mime_type",
+          "file_size",
+          "file_size_display",
+          "width",
+          "height",
+          "aspect_ratio",
+          "duration",
+          "title",
+          "alt_text",
+          "tags",
+          "folder_id",
+          "is_starred",
+          "is_shared",
+          "processing_status",
+          "url",
+          "thumbnail_url",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MediaAssetResponse",
+        "type": "object"
+      },
+      "MediaAssetListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MediaAssetResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "limit"
+        ],
+        "title": "MediaAssetListResponse",
+        "type": "object"
+      },
+      "AccountAnalyticsResponse": {
+        "description": "Channel-level analytics summary over a rolling window of days.",
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "account_name": {
+            "title": "Account Name",
+            "type": "string"
+          },
+          "connection_status": {
+            "description": "``connected``, ``token_expiring``, ``disconnected``, or ``error``. Disconnected accounts still return historical analytics, but new data may not be flowing.",
+            "title": "Connection Status",
+            "type": "string"
+          },
+          "days": {
+            "description": "Window size (in days) used for derivation. One of 7, 30, or 90.",
+            "title": "Days",
+            "type": "integer"
+          },
+          "analytics_available": {
+            "description": "``false`` for platforms whose APIs don't expose aggregate analytics (currently LinkedIn Personal, Bluesky, Mastodon). Metric arrays are empty when false.",
+            "title": "Analytics Available",
+            "type": "boolean"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable reason the analytics surface is unavailable, when ``analytics_available`` is false.",
+            "title": "Unavailable Reason"
+          },
+          "hero_metrics": {
+            "description": "Top-line per-channel KPIs (reach-like counts). Engagement parts are in ``engagement.parts``.",
+            "items": {
+              "$ref": "#/components/schemas/DerivedMetricResponse"
+            },
+            "title": "Hero Metrics",
+            "type": "array"
+          },
+          "engagement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EngagementCardResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Engagement-rate card, or ``null`` when the platform lacks a reach-like denominator."
+          },
+          "follower_growth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DerivedMetricResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New followers / subscribers gained over the window, when the platform reports it."
+          },
+          "captured_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Most recent ``captured_at`` across the account's snapshots. ``null`` if no rows yet.",
+            "title": "Captured At"
+          },
+          "next_sync_eta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Approximate next time the background sync will refresh this account. ``null`` for platforms without analytics. Use it to pick a polling delay.",
+            "title": "Next Sync Eta"
+          }
+        },
+        "required": [
+          "account_id",
+          "platform",
+          "account_name",
+          "connection_status",
+          "days",
+          "analytics_available"
+        ],
+        "title": "AccountAnalyticsResponse",
+        "type": "object"
+      },
+      "DerivedMetricResponse": {
+        "description": "A single derived metric over a rolling window.\n\nMirrors ``apps.analytics.derive.DerivedMetric`` but with a stable wire\nshape: agents can rely on every metric carrying the same five fields.\nThe dataclass itself isn't a Pydantic model, so we route through\n:meth:`from_derived` rather than letting Ninja convert it implicitly.",
+        "properties": {
+          "key": {
+            "description": "Metric identifier (e.g. ``views``, ``likes``, ``engagement``).",
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "description": "Human-readable label for the metric (e.g. ``Views``).",
+            "title": "Label",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Format hint: ``count`` | ``percent`` | ``minutes``.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "description": "Aggregate value over the current window. Sum for ``count`` metrics, average for ``percent`` and ``minutes`` (since those are already daily rates).",
+            "title": "Value",
+            "type": "number"
+          },
+          "delta": {
+            "description": "Percent change vs. the previous equal-length window. ``0.0`` when there is no prior baseline.",
+            "title": "Delta",
+            "type": "number"
+          },
+          "series": {
+            "description": "Daily values for the current window, oldest first.",
+            "items": {
+              "type": "number"
+            },
+            "title": "Series",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "kind",
+          "value",
+          "delta"
+        ],
+        "title": "DerivedMetricResponse",
+        "type": "object"
+      },
+      "EngagementCardResponse": {
+        "properties": {
+          "rate": {
+            "$ref": "#/components/schemas/DerivedMetricResponse",
+            "description": "Engagement rate = sum(parts) / denom * 100. The denom is the first available of ``reach, impressions, views, plays``."
+          },
+          "parts": {
+            "description": "The component metrics that feed the rate's numerator (likes, comments, shares, \u2026).",
+            "items": {
+              "$ref": "#/components/schemas/DerivedMetricResponse"
+            },
+            "title": "Parts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rate"
+        ],
+        "title": "EngagementCardResponse",
+        "type": "object"
+      },
+      "PlatformPostAnalyticsResponse": {
+        "description": "Analytics for a single per-platform child of a Post.",
+        "properties": {
+          "platform_post_id": {
+            "format": "uuid",
+            "title": "Platform Post Id",
+            "type": "string"
+          },
+          "social_account_id": {
+            "format": "uuid",
+            "title": "Social Account Id",
+            "type": "string"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "analytics_available": {
+            "description": "``false`` for platforms without analytics. ``true`` for everything else \u2014 including drafts and scheduled posts, which simply return empty metric tiles until publish.",
+            "title": "Analytics Available",
+            "type": "boolean"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
+          "metric_tiles": {
+            "description": "One tile per metric this platform reports. Empty until the first snapshot lands.",
+            "items": {
+              "$ref": "#/components/schemas/PostMetricTileResponse"
+            },
+            "title": "Metric Tiles",
+            "type": "array"
+          },
+          "captured_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Most recent ``captured_at`` across this platform-post's snapshots.",
+            "title": "Captured At"
+          },
+          "next_sync_eta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Approximate next sync time based on the post's age: <24h\u2192+1h, 1-7d\u2192+6h, 7-30d\u2192+1d, 30-90d\u2192+7d, >90d\u2192null (syncs have stopped).",
+            "title": "Next Sync Eta"
+          }
+        },
+        "required": [
+          "platform_post_id",
+          "social_account_id",
+          "platform",
+          "status",
+          "published_at",
+          "analytics_available"
+        ],
+        "title": "PlatformPostAnalyticsResponse",
+        "type": "object"
+      },
+      "PostAnalyticsResponse": {
+        "description": "Analytics for a Post, with per-platform breakdown.\n\nMirrors ``PostResponse``'s parent-Post-with-platform-children shape so\nagents that already track ``post_id`` from ``schedule_post`` /\n``create_draft`` can poll analytics without learning new IDs.",
+        "properties": {
+          "post_id": {
+            "format": "uuid",
+            "title": "Post Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "title": "Workspace Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "caption": {
+            "title": "Caption",
+            "type": "string"
+          },
+          "platform_posts": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformPostAnalyticsResponse"
+            },
+            "title": "Platform Posts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "post_id",
+          "workspace_id",
+          "title",
+          "caption",
+          "platform_posts"
+        ],
+        "title": "PostAnalyticsResponse",
+        "type": "object"
+      },
+      "PostMetricTileResponse": {
+        "description": "One metric tile in the per-post analytics drawer.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "description": "Most recent snapshot value for this metric on this post.",
+            "title": "Value",
+            "type": "number"
+          },
+          "series": {
+            "description": "Daily sparkline since publish \u2014 one entry per day with a recorded snapshot.",
+            "items": {
+              "type": "number"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "is_primary": {
+            "default": false,
+            "description": "True for the platform's default headline metric (e.g. ``views`` for YouTube).",
+            "title": "Is Primary",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "kind",
+          "value"
+        ],
+        "title": "PostMetricTileResponse",
         "type": "object"
       }
     },

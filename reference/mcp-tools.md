@@ -16,7 +16,7 @@ Brightbean implements MCP `2025-03-26`. The server doesn't issue
 | `initialize`                    | Handshake; returns serverInfo + capabilities  |
 | `notifications/initialized`     | Notification (no reply) after init            |
 | `ping`                          | Keepalive / liveness                          |
-| `tools/list`                    | List available tools (5 today)                |
+| `tools/list`                    | List available tools (8 today)                |
 | `tools/call`                    | Invoke one tool                               |
 
 Batched JSON-RPC is supported. A batch of N messages costs N rate-limit
@@ -135,6 +135,61 @@ if the post has no draft children.
 
 > The MCP tool catalog now mirrors the REST surface exactly — there is
 > no MCP/REST capability asymmetry left.
+
+### `get_account_analytics`
+
+Channel-wide analytics over a rolling 7 / 30 / 90-day window. Equivalent
+to REST `GET /analytics/accounts/{account_id}`.
+
+Arguments:
+```json
+{
+  "name": "get_account_analytics",
+  "arguments": {
+    "account_id": "uuid",   // REQUIRED, must be in the key's allowlist
+    "days": 30              // optional, default 30, must be in [7, 90]
+  }
+}
+```
+
+Permission required: `view_analytics`.
+
+Returns `AccountAnalyticsResponse` (see [rest-api.md](rest-api.md#accountanalyticsresponse))
+inside the `content[0].text` JSON envelope. Errors with `INVALID_PARAMS`
+on schema-validation failure (`days` out of range), missing
+`view_analytics`, or `account_id` outside the allowlist.
+
+### `get_post_analytics`
+
+Per-post analytics, broken down per platform. Equivalent to REST
+`GET /analytics/posts/{post_id}`. Use in a polling loop after
+`schedule_post` / `create_draft` to see how a post is performing —
+drafts and scheduled posts return an empty `metric_tiles` array (not an
+error), so it is safe to call from day zero.
+
+Arguments:
+```json
+{
+  "name": "get_post_analytics",
+  "arguments": {
+    "post_id": "uuid"   // REQUIRED — the parent Post.id from schedule_post / create_draft
+  }
+}
+```
+
+Permission required: `view_analytics`.
+
+Returns `PostAnalyticsResponse` (see [rest-api.md](rest-api.md#postanalyticsresponse))
+inside the `content[0].text` JSON envelope. Errors with `INVALID_PARAMS`
+`"Post not found"` (same opacity rule as `get_post`) or
+`"Permission denied: view_analytics"`.
+
+> **Polling cadence.** Every analytics response carries `captured_at`
+> (latest snapshot timestamp) and `next_sync_eta` (estimated next
+> refresh). Honour `next_sync_eta` — polling faster than the backend
+> syncs burns rate-limit budget and returns the same `captured_at`.
+> See the *Analytics polling cadence* section in SKILL.md for the
+> ladder.
 
 ## Error code mapping (server-side audit)
 
